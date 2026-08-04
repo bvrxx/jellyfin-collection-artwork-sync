@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
-using ICU4N.Text;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.CollectionArtworkSync.Configuration;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
@@ -18,17 +18,20 @@ public class CollectionArtworkSyncManager : IScheduledTask, IDisposable
     private readonly ILibraryManager _libraryManager;
     private readonly IProviderManager _providerManager;
     private readonly IFileSystem _fileSystem;
+    private readonly IApplicationPaths _applicationPaths;
 
     public CollectionArtworkSyncManager(
         ILogger<CollectionArtworkSyncManager> logger,
         ILibraryManager libraryManager,
         IProviderManager providerManager,
-        IFileSystem fileSystem)
+        IFileSystem fileSystem,
+        IApplicationPaths applicationPaths)
     {
         _fileSystem = fileSystem;
         _logger = logger;
         _libraryManager = libraryManager;
         _providerManager = providerManager;
+        _applicationPaths = applicationPaths;
     }
 
     public string Name => "Sync movie collection artworks";
@@ -55,7 +58,7 @@ public class CollectionArtworkSyncManager : IScheduledTask, IDisposable
 
         _logger.LogInformation("Starting synchronization task");
 
-        string jellyfinCollectionsPath="data/collections";
+        string jellyfinCollectionsPath = Path.Combine(_applicationPaths.DataPath, "collections");
 
         string externalArtworkDirectoryPath = Plugin.Instance!.Configuration.ExternalArtworkDirectoryPath;
         OnlyWriteChangedArtworks onlyWriteChangedArtworks = Plugin.Instance.Configuration.OnlyWriteChangedArtworks;
@@ -72,8 +75,8 @@ public class CollectionArtworkSyncManager : IScheduledTask, IDisposable
         foreach (string moviesetFolderPath in moviesetFolderPaths){
             _logger.LogInformation($"Executing '{moviesetFolderPath}'");
             string moviesetName = Path.GetFileName(moviesetFolderPath);
-            string externalPath = $"{externalArtworkDirectoryPath}/{moviesetName}";
-            externalPath = externalPath.Replace(" [boxset]", "");
+            string collectionName = moviesetName.Replace(" [boxset]", "");
+            string externalPath = $"{externalArtworkDirectoryPath}/{collectionName}";
             if (!Directory.Exists(externalPath)){
                 _logger.LogWarning($"No external movie set artwork folder found for movieset {moviesetName} in folder {externalPath}");
                 continue;
@@ -96,7 +99,7 @@ public class CollectionArtworkSyncManager : IScheduledTask, IDisposable
                     if (new FileInfo(artworkFilePath).Length != new FileInfo(jellyfinArtworkFilePath).Length){
                         jellyfinArtworkFilePath = Path.Combine(moviesetFolderPath, artworkFileName);
                         CopyArtworkFile(artworkFilePath, jellyfinArtworkFilePath);
-                        updatedCollections.Add(moviesetName);
+                        updatedCollections.Add(collectionName);
                         continue;
                     }
 
@@ -129,7 +132,7 @@ public class CollectionArtworkSyncManager : IScheduledTask, IDisposable
                     jellyfinArtworkFilePath = Path.Combine(moviesetFolderPath, artworkFileName);
                 }
                 CopyArtworkFile(artworkFilePath, jellyfinArtworkFilePath);
-                updatedCollections.Add(moviesetName);
+                updatedCollections.Add(collectionName);
             }
         }
       var boxsets = _libraryManager.GetItemList(new
@@ -152,7 +155,7 @@ public class CollectionArtworkSyncManager : IScheduledTask, IDisposable
 
     public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
     {
-        return [new TaskTriggerInfo { Type = TaskTriggerInfo.TriggerInterval, IntervalTicks = TimeSpan.FromHours(24).Ticks }];
+        return [new TaskTriggerInfo { Type = TaskTriggerInfoType.IntervalTrigger, IntervalTicks = TimeSpan.FromHours(24).Ticks }];
     }
 
     public async Task<string[]> GetAllSubDirectoriesOfDirectory(string path){
@@ -222,6 +225,6 @@ public class CollectionArtworkSyncManager : IScheduledTask, IDisposable
         string jellyfinDirPath = Path.GetDirectoryName(jellyfinFilePath)!;
         string newJellyfinFilePath = Path.Combine(jellyfinDirPath, externalFileName);
         _logger.LogInformation($"Renaming file {jellyfinFilePath} to {newJellyfinFilePath}");
-        File.Move(jellyfinFilePath, newJellyfinFilePath);
+        File.Move(jellyfinFilePath, newJellyfinFilePath, overwrite: true);
     }
 }
